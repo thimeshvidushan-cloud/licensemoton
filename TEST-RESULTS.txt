@@ -1,0 +1,12 @@
+PRE-DEPLOYMENT CHECKS
+====================
+- JavaScript syntax checked for all Vercel API route files.
+- JavaScript syntax checked for the modified public page script blocks.
+- JavaScript syntax checked for the admin page script.
+- vercel.json parsed successfully as JSON.
+- API smoke checks cover login/session cookies, authenticated Cloudinary
+  upload-signature creation, public portfolio reads, and admin inserts.
+
+These are local source-level checks only. Final integration still needs a
+Vercel deployment and browser testing against the user's Supabase and
+Cloudinary projects.

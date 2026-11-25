@@ -634,7 +634,7 @@ const SERVICES = [
 ];
 
 /* type: image | video   cat must match a filter name   wide: spans 2 columns on desktop */
-const PORTFOLIO = [
+let PORTFOLIO = [
   /* ratio = width/height of the media, so each slot fits it exactly (no cropping).
      Video: {title:"...", cat:"Reels", type:"video", ratio:"1080/1920", video:"https://res.cloudinary.com/<cloud>/video/upload/v123/name.mp4"} */
   {title:"Motorama Customs · Legends Deserve Perfection", cat:"Graphic", type:"image", file:"motorama-legends.jpg"},
@@ -671,7 +671,38 @@ const $ = (s, el=document) => el.querySelector(s);
 const img = (seed, w, h) => `https://picsum.photos/seed/${seed}/${w}/${h}`;
 const waLink = (text, num) => `https://wa.me/${num || CONFIG.CONTACTS[0].num}` + (text ? `?text=${encodeURIComponent(text)}` : "");
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Prefer the live database portfolio. The embedded list remains a safe fallback
+  // so the public site can still render if the API/database is temporarily unavailable.
+  try {
+    const portfolioResponse = await fetch('/api/portfolio', { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(4000) });
+    if (portfolioResponse.ok) {
+      const rows = await portfolioResponse.json();
+      if (Array.isArray(rows)) {
+        PORTFOLIO = rows.map(row => {
+          const mediaUrl = String(row.media_url || '');
+          const isLocalImage = row.media_type === 'image' && /^\/images\/[a-z0-9._-]+$/i.test(mediaUrl);
+          return {
+            id: row.id,
+            title: row.title,
+            cat: row.category,
+            type: row.media_type,
+            video: row.media_type === 'video' ? mediaUrl : undefined,
+            file: isLocalImage ? mediaUrl.slice('/images/'.length) : undefined,
+            imageUrl: row.media_type === 'image' && !isLocalImage ? mediaUrl : undefined,
+            poster: row.poster_url || undefined,
+            ratio: row.aspect_ratio || '1/1',
+            wide: Boolean(row.is_wide)
+          };
+        });
+      }
+    }
+  } catch (error) {
+    console.warn('Using the built-in portfolio fallback because the database API is unavailable.', error);
+  }
+
+  const escapeHTML = value => String(value ?? '').replace(/[&<>\"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[char]));
+
   /* brand + logo */
   document.title = `${CONFIG.BRAND} | Imagine - Design - Create - Bring To Life`;
   $('#copy').textContent = `© ${new Date().getFullYear()} ${CONFIG.BRAND}`;
@@ -733,17 +764,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const vsrc = p => !p.video ? CONFIG.VIDEO_SAMPLE : isCld(p.video) ? cld(p.video, 'q_auto,f_mp4,w_720,h_720,c_limit') : p.video;
   const vfull = p => isCld(p.video) ? cld(p.video, 'q_auto,f_mp4,w_1080,h_1080,c_limit') : p.video;
   const cats = ['All', ...new Set(PORTFOLIO.map(p => p.cat))];
-  $('#filters').innerHTML = cats.map((c,i) => `<button class="${i?'':'on'}" data-c="${c}">${c}</button>`).join('');
+  $('#filters').innerHTML = cats.map((c,i) => `<button class="${i?'':'on'}" data-c="${escapeHTML(c)}">${escapeHTML(c)}</button>`).join('');
   const pf = $('#portfolio');
-  pf.innerHTML = PORTFOLIO.map((p,i) => `
-    <article class="pf ${p.wide?'wide':''} ${p.file?'art':''} ${p.video?'vid':''}" ${p.video ? `data-full="${vfull(p)}" data-orig="${p.video}"` : ''} data-c="${p.cat}" style="--k:${i};aspect-ratio:${p.ratio || '1/1'}">
-      <img src="${p.file ? 'images/' + p.file : (poster(p) || img(p.seed, p.wide?1200:800, 1000))}" alt="${p.title}" loading="lazy">
-      ${p.type==='video' ? `<video muted loop playsinline preload="none" data-src="${vsrc(p)}"></video>` : ''}
+  pf.innerHTML = PORTFOLIO.map((p,i) => {
+    const imageSrc = p.imageUrl || (p.file ? 'images/' + p.file : (poster(p) || img(p.seed, p.wide?1200:800, 1000)));
+    return `
+    <article class="pf ${p.wide?'wide':''} ${p.type==='image'?'art':''} ${p.video?'vid':''}" ${p.video ? `data-full="${escapeHTML(vfull(p))}" data-orig="${escapeHTML(p.video)}"` : ''} data-c="${escapeHTML(p.cat)}" style="--k:${i};aspect-ratio:${escapeHTML(p.ratio || '1/1')}">
+      <img src="${escapeHTML(imageSrc)}" alt="${escapeHTML(p.title)}" loading="lazy">
+      ${p.type==='video' ? `<video muted loop playsinline preload="none" data-src="${escapeHTML(vsrc(p))}"></video>` : ''}
       <div class="meta">
-        <div><small>${p.cat}</small><h4>${p.title}</h4></div>
+        <div><small>${escapeHTML(p.cat)}</small><h4>${escapeHTML(p.title)}</h4></div>
         ${p.type==='video' ? `<span class="play"><svg viewBox="0 0 24 24"><path d="M5 3v18l16-9z"/></svg></span>` : ''}
       </div>
-    </article>`).join('');
+    </article>`;
+  }).join('');
   pf.querySelectorAll('.pf').forEach(card => {
     const v = $('video', card);
     if (!v) return;
